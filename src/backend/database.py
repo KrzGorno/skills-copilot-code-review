@@ -2,11 +2,26 @@
 MongoDB database configuration and setup for Mergington High School API
 """
 
+import os
+from typing import Final
+
 from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 from argon2 import PasswordHasher, exceptions as argon2_exceptions
 
 # Connect to MongoDB
-client = MongoClient('mongodb://localhost:27017/')
+MONGODB_URI: Final[str] = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+# Server selection timeout (ms) is configurable for different deployment scenarios.
+# Default is 2000 ms to fail fast on unavailable MongoDB instances.
+_DEFAULT_SERVER_SELECTION_TIMEOUT_MS: Final[int] = 2000
+try:
+    SERVER_SELECTION_TIMEOUT_MS: Final[int] = int(
+        os.getenv("SERVER_SELECTION_TIMEOUT_MS", str(_DEFAULT_SERVER_SELECTION_TIMEOUT_MS))
+    )
+except ValueError:
+    SERVER_SELECTION_TIMEOUT_MS = _DEFAULT_SERVER_SELECTION_TIMEOUT_MS
+
+client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=SERVER_SELECTION_TIMEOUT_MS)
 db = client['mergington_high']
 activities_collection = db['activities']
 teachers_collection = db['teachers']
@@ -36,19 +51,39 @@ def verify_password(hashed_password: str, plain_password: str) -> bool:
         return False
 
 
+def is_database_available() -> bool:
+    """Return True when MongoDB is reachable, False otherwise."""
+    try:
+        client.admin.command("ping")
+        return True
+    except PyMongoError:
+        return False
+
+
 def init_database():
-    """Initialize database if empty"""
+    """Initialize database if empty.
 
-    # Initialize activities if empty
-    if activities_collection.count_documents({}) == 0:
-        for name, details in initial_activities.items():
-            activities_collection.insert_one({"_id": name, **details})
+    Returns True on success, False when MongoDB is unavailable.
+    """
 
-    # Initialize teacher accounts if empty
-    if teachers_collection.count_documents({}) == 0:
-        for teacher in initial_teachers:
-            teachers_collection.insert_one(
-                {"_id": teacher["username"], **teacher})
+    if not is_database_available():
+        return False
+
+    try:
+        # Initialize activities if empty
+        if activities_collection.count_documents({}) == 0:
+            for name, details in initial_activities.items():
+                activities_collection.insert_one({"_id": name, **details})
+
+        # Initialize teacher accounts if empty
+        if teachers_collection.count_documents({}) == 0:
+            for teacher in initial_teachers:
+                teachers_collection.insert_one(
+                    {"_id": teacher["username"], **teacher})
+
+        return True
+    except PyMongoError:
+        return False
 
 
 # Initial database if empty
