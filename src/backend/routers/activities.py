@@ -6,12 +6,20 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from typing import Dict, Any, Optional, List
 
-from ..database import activities_collection, teachers_collection
+from ..database import activities_collection, teachers_collection, is_database_available
 
 router = APIRouter(
     prefix="/activities",
     tags=["activities"]
 )
+
+
+def _require_database() -> None:
+    if not is_database_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable. Start MongoDB and try again."
+        )
 
 
 @router.get("", response_model=Dict[str, Any])
@@ -29,6 +37,8 @@ def get_activities(
     - end_time: Filter activities ending at or before this time (24-hour format, e.g., '17:00')
     """
     # Build the query based on provided filters
+    _require_database()
+
     query = {}
 
     if day:
@@ -52,6 +62,8 @@ def get_activities(
 @router.get("/days", response_model=List[str])
 def get_available_days() -> List[str]:
     """Get a list of all days that have activities scheduled"""
+    _require_database()
+
     # Aggregate to get unique days across all activities
     pipeline = [
         {"$unwind": "$schedule_details.days"},
@@ -69,6 +81,8 @@ def get_available_days() -> List[str]:
 @router.post("/{activity_name}/signup")
 def signup_for_activity(activity_name: str, email: str, teacher_username: Optional[str] = Query(None)):
     """Sign up a student for an activity - requires teacher authentication"""
+    _require_database()
+
     # Check teacher authentication
     if not teacher_username:
         raise HTTPException(
@@ -105,6 +119,8 @@ def signup_for_activity(activity_name: str, email: str, teacher_username: Option
 @router.post("/{activity_name}/unregister")
 def unregister_from_activity(activity_name: str, email: str, teacher_username: Optional[str] = Query(None)):
     """Remove a student from an activity - requires teacher authentication"""
+    _require_database()
+
     # Check teacher authentication
     if not teacher_username:
         raise HTTPException(
